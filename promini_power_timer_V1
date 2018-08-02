@@ -174,7 +174,10 @@ void loop() {
   String fullstring2 = "";  // create string "fullString" that contains all clock data
 
   
-//ADD SD CARD INFORMATION LATER 
+/// recording data to SD card
+  myFile = SD.open("data.csv", FILE_WRITE);  // if you change this file name don't make it too long or the sd card writter will stop working
+
+  if(myFile) { 
 
     fullstring1 += dataloggerID; fullstring1 += ",";  // add datalogger ID to string "fullstring"
 
@@ -200,15 +203,23 @@ void loop() {
 
    //  ADD PRINT TO FILE STATEMENTS LATER
 
-   
     // separates sampling from sensors and writing to sd card so there is not a large spike in current
     delay(50);
+
+    // save string (with all sensor and time/date data to file "myFile"
+    myFile.print(fullstring1); // print carriage return so that new data is added to one line below previous sample
+      delay(50); // you will need a small delay here so the arduino can complete copying data to the sd card...  
+    myFile.println(fullstring2);  
+      delay(50);
+    myFile.close();
+      delay(50);  // give a little time for file to close
 
     Serial.print(fullstring1); // print "fullstring1" to monitor
       delay(50); // give a little time for string to print to serial
     Serial.println(fullstring2); // print "fullstring2" to monitor
       delay(50); // give a little time for string to print to serial      
-
+  }
+  
 //ADD SLEEP LOOP BACK IN LATER
 }
 
