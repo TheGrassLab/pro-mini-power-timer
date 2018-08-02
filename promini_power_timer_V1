@@ -1,0 +1,226 @@
+
+
+// code to run RTC, bmp289, and SD card.  If sd card does not ititialize pull it out and try a different one. 
+
+//_________________________________________________________________________________________________________________________________________________
+// Don't change this - loads the required libraries for the real time clock (RTC), moisture sensor, SD card reader/writer, etc
+//_________________________________________________________________________________________________________________________________________________
+
+// load libraries needed for communications (to SD card, RTC, sensor)
+#include <Wire.h>
+#include <SPI.h>
+// load library needed to write and read to SD card
+#include <SD.h>
+// load libraries needed to extract temp and atm pressure from BMP280 sensor
+// #include <Adafruit_Sensor.h>
+// #include <Adafruit_BMP280.h>
+#include <LowPower.h>   // lower power library to put arduino asleep during measurement intervals
+#include <Adafruit_SHT31.h> //library to communicate with T/RH sensor SHT31-D
+#include <RTClib.h>
+
+//_________________________________________________________________________________________________________________________________________________
+// define sampling interval for the datalogger and datalogger number.   YOU WILL NEED TO CHANGE THE "dataloggerID" and "sample_intergal"
+//_________________________________________________________________________________________________________________________________________________
+
+float sample_interval = 5; // this number x8  will give the sample interval.  If you want an 80-sec interval set this number to 10)
+String dataloggerID = "PM_1"; // this is the name for the datalogger - change it to something unique for each datalogger
+
+float loop_count = 1; // don't change this.  
+
+//_________________________________________________________________________________________________________________________________________________
+// Don't change this - defines address for the real time clock (RTC)... this is the id number (0x68 in this case), which is specific 
+// for every device connected via i2c.  Tells arduino what the address is for the RTC.  If you don't know the address, will need to run "I2detect 
+// sketch to find out".  This isn't hard to do and should be in your sketch library
+//_________________________________________________________________________________________________________________________________________________
+
+#define DS3231_I2C_ADDRESS 0x68  // don't change - tells arduino that we are using I2C communications with the RTC
+// Adafruit_BMP280 bmp; // tells arduino that we will use I2C communication protocol with the BMP280 as well 
+
+
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
+RTC_DS3231 rtc;
+
+File myFile; // don't change gives name for the SD card file 
+
+//_________________________________________________________________________________________________________________________________________________
+// Don't change this - creates two functions to convert decimal~binary and binary~decimal (for RTC)
+//_________________________________________________________________________________________________________________________________________________
+
+byte decToBcd(byte val)
+{
+  return( (val/10*16) + (val%10) );
+}
+// Convert binary coded decimal to normal decimal numbers
+byte bcdToDec(byte val)
+{
+  return( (val/16*10) + (val%16) );
+}
+
+
+//_________________________________________________________________________________________________________________________________________________
+// Don't change this - SETUP loop - initializes SD card, moisture sensor and print warning to serial port (and blink fxn) if not working properly
+//_________________________________________________________________________________________________________________________________________________
+
+// SETUP LOOP (same for RTC, sd card, and moisture sensors)
+void setup() {
+  Wire.begin();
+  Serial.begin(9600);
+  rtc.begin();
+  sht31.begin(0x44);
+  
+//  pinMode(13,OUTPUT);  // to blink LED if data are copied to sd card 
+  
+  
+  
+  // initialize sd card        
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for Leonardo only
+  }
+  Serial.print("Initializing SD card...");
+  // On the Ethernet Shield, CS is pin 4. It's set as an output by default.
+  // Note that even if it's not used as the CS pin, the hardware SS pin 
+  // (10 on most Arduino boards, 53 on the Mega) must be left as an output 
+  // or the SD library functions will not work. 
+   pinMode(10, OUTPUT);
+   
+  if (!SD.begin(4)) {
+    Serial.println("initialization failed!");
+    return;
+  }
+  Serial.println("initialization done.");
+  
+//_________________________________________________________________________________________________________________________________________________
+// the first time the RTC is run, you will need to unsilence the line below that begins with "setDS3231".  You will need to put in correct date and time
+// Then silence it again and and re-upload script (otherwise it well reset the time every time you power up the arduino
+//_________________________________________________________________________________________________________________________________________________   
+
+  // MANUALLY SETTING THE RTC TIME  - ONLY USE IF THE AUTOMATIC CODE (BELOW) DOESN'T WORK
+  // NOTE THAT THE BELOW LINE MUST BE UN-SILENCED TO SET TIME (sec, min, hr, day[1-7], date, month, year).  AFTER TIME IS SET SILENCE IT AGAIN AND RE-UPLOAD - sean
+ //  setDS3231time(1,17,14,6,2,12,17); 
+
+//AUTOMATICALLY SETTING THE RTC TIME
+   if (! rtc.begin()) {
+    Serial.println("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+   }
+    
+//_________________________________________________________________________________________________________________________________________________
+// add column headings to serial data and sd card.  Change this if the logged data changes
+//_________________________________________________________________________________________________________________________________________________
+
+//  Serial.println("logger_ID,capacitance,temp,date,time");  // send column headings to monitor  
+//  myFile = SD.open("data.csv", FILE_WRITE); 
+//    myFile.println("logger_ID,capacitance,temp,date,time");  // save column headings to sd card  
+//    myFile.close();
+  
+}
+// END SETUP****
+
+//_________________________________________________________________________________________________________________________________________________
+// sets arduino time to RTC time.  You won't need to change any of this
+//_________________________________________________________________________________________________________________________________________________
+
+// code for RTC (should come before void loop (below)
+
+void setDS3231time(byte second, byte minute, byte hour, byte dayOfWeek, byte
+dayOfMonth, byte month, byte year)
+{
+  // sets time and date data to DS3231
+  Wire.beginTransmission(DS3231_I2C_ADDRESS);
+  Wire.write(0); // set next input to start at the seconds register
+  Wire.write(decToBcd(second)); // set seconds
+  Wire.write(decToBcd(minute)); // set minutes
+  Wire.write(decToBcd(hour)); // set hours
+  Wire.write(decToBcd(dayOfWeek)); // set day of week (1=Sunday, 7=Saturday)
+  Wire.write(decToBcd(dayOfMonth)); // set date (1 to 31)
+  Wire.write(decToBcd(month)); // set month
+  Wire.write(decToBcd(year)); // set year (0 to 99)
+  Wire.endTransmission();
+}
+
+void readDS3231time(byte *second,
+byte *minute,
+byte *hour,
+byte *dayOfWeek,
+byte *dayOfMonth,
+byte *month,
+byte *year)
+{
+  Wire.beginTransmission(DS3231_I2C_ADDRESS);
+  Wire.write(0); // set DS3231 register pointer to 00h
+  Wire.endTransmission();
+  Wire.requestFrom(DS3231_I2C_ADDRESS, 7);
+  // request seven bytes of data from DS3231 starting from register 00h
+  *second = bcdToDec(Wire.read() & 0x7f);
+  *minute = bcdToDec(Wire.read());
+  *hour = bcdToDec(Wire.read() & 0x3f);
+  *dayOfWeek = bcdToDec(Wire.read());
+  *dayOfMonth = bcdToDec(Wire.read());
+  *month = bcdToDec(Wire.read());
+  *year = bcdToDec(Wire.read());
+}
+
+
+//___________________________________________________________________________________________________________________________________
+// create a loop that will cycle through at specified time intercal to extract data from sensors, send to serial and write to SD card.  You won't need to change this
+//___________________________________________________________________________________________________________________________________
+
+void loop() {
+  
+  // the RAM on the arduino is very small... so cannot let strings get longer than ~40 characters... or else bad things happen
+  // therefore, break all string variables up into lengths not exceeding 40 chars
+  String fullstring1 = "";  // create string "fullString" that contains all sensor data
+  String fullstring2 = "";  // create string "fullString" that contains all clock data
+
+  
+//ADD SD CARD INFORMATION LATER 
+
+    fullstring1 += dataloggerID; fullstring1 += ",";  // add datalogger ID to string "fullstring"
+
+    // call data from moisture sensor1 and add to string "fullstring"
+    delay(50); 
+    float t = sht31.readTemperature();
+    float h = sht31.readHumidity();
+
+    fullstring1 += sht31.readTemperature(); fullstring1 += ","; // read capacitiance sensor and add to string
+    fullstring1 += sht31.readHumidity(); fullstring1 += ","; //temperature register and add to string
+
+    // retrieve data from DS3231
+    byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+    readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);    
+
+    // call data from real-time-clock (RTC)  
+    fullstring2 += month; fullstring2 += "/";
+    fullstring2 += dayOfMonth; fullstring2 += "/";
+    fullstring2 += year; fullstring2 += ",";
+    fullstring2 += hour; fullstring2 += ":";
+    fullstring2 += minute; fullstring2 += ":";
+    fullstring2 += second; // fullstring += ",";
+
+   //  ADD PRINT TO FILE STATEMENTS LATER
+
+   
+    // separates sampling from sensors and writing to sd card so there is not a large spike in current
+    delay(50);
+
+    Serial.print(fullstring1); // print "fullstring1" to monitor
+      delay(50); // give a little time for string to print to serial
+    Serial.println(fullstring2); // print "fullstring2" to monitor
+      delay(50); // give a little time for string to print to serial      
+
+//ADD SLEEP LOOP BACK IN LATER
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
